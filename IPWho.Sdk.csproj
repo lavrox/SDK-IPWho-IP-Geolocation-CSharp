@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>IPWho</RootNamespace>
+    <AssemblyName>IPWho.Sdk</AssemblyName>
+    <PackageId>IPWho.Sdk</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>IPWho SDK Contributors</Authors>
+    <Company>Lavrox</Company>
+    <Description>Official C# SDK for the IPWho IP geolocation API (lookup, me, bulk) — geoip, IP location, ASN/ISP, timezone, VPN detection.</Description>
+    <PackageTags>ipwho;ipwho.org;lavrox;geoip;ip-geolocation;ip-lookup;ipv4;ipv6;asn;isp;vpn</PackageTags>
+    <PackageProjectUrl>https://www.ipwho.org</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/lavrox/SDK-IPWho-IP-Geolocation-CSharp</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="src/**/*.cs" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="LICENSE" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>
