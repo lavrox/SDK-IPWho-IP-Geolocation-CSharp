@@ -3,8 +3,7 @@
 // Enterprise-grade client for the IPWho IP Geolocation API.
 // API docs: https://api.ipwho.org
 //
-// Dependencies (.csproj):
-//   <PackageReference Include="System.Net.Http.Json" Version="8.0.0" />
+// No NuGet dependencies: .NET 8 includes everything it uses.
 //
 // Usage:
 //   var client = new IpWhoClient("sk.xxxx");
@@ -14,7 +13,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
-using System.Net.Http.Json;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -365,7 +364,48 @@ namespace IPWho
     public class BulkResponseData
     {
         [JsonPropertyName("responseArray")]
+        [JsonConverter(typeof(BulkRowListConverter))]
         public List<IpGeoResponse>? ResponseArray { get; set; }
+    }
+
+    /// <summary>
+    /// Reads bulk results. The API sends each row flat:
+    /// {success, ip, geoLocation, ...} or {success: false, ip, message}.
+    /// A row already nested under "data" is accepted too.
+    /// </summary>
+    internal sealed class BulkRowListConverter : JsonConverter<List<IpGeoResponse>>
+    {
+        public override List<IpGeoResponse> Read(
+            ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            using var document = JsonDocument.ParseValue(ref reader);
+            var rows = new List<IpGeoResponse>();
+            foreach (var row in document.RootElement.EnumerateArray())
+            {
+                if (row.TryGetProperty("data", out _))
+                {
+                    rows.Add(row.Deserialize<IpGeoResponse>(options)!);
+                    continue;
+                }
+
+                rows.Add(new IpGeoResponse
+                {
+                    Success = row.TryGetProperty("success", out var success)
+                        && success.ValueKind == JsonValueKind.True,
+                    Message = row.TryGetProperty("message", out var message)
+                        ? message.GetString()
+                        : null,
+                    Data = row.Deserialize<GeoData>(options)
+                });
+            }
+            return rows;
+        }
+
+        public override void Write(
+            Utf8JsonWriter writer, List<IpGeoResponse> value, JsonSerializerOptions options)
+        {
+            JsonSerializer.Serialize(writer, value, options);
+        }
     }
 
     /// <summary>
@@ -378,6 +418,10 @@ namespace IPWho
 
         [JsonPropertyName("message")]
         public string? Message { get; set; }
+
+        /// <summary>Error code, for example invalid_api_key. Auth errors send this and no message.</summary>
+        [JsonPropertyName("error")]
+        public string? Error { get; set; }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -414,7 +458,13 @@ namespace IPWho
             if (string.IsNullOrWhiteSpace(apiKey))
                 throw new ArgumentException("apiKey is required", nameof(apiKey));
 
-            _apiKey = apiKey;
+            _apiKey = apiKey.Trim();
+            // The key is sent in a header. Reject it here, without repeating it.
+            foreach (var c in _apiKey)
+            {
+                if (c < ' ' || c > '~')
+                    throw new ArgumentException("apiKey contains characters that are not allowed", nameof(apiKey));
+            }
             _baseUrl = (baseUrl ?? DefaultBaseUrl).TrimEnd('/');
             _httpClient = httpClient ?? new HttpClient();
 
@@ -470,7 +520,10 @@ namespace IPWho
         /// </summary>
         /// <param name="ips">List of IPv4 or IPv6 addresses.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
-        /// <returns>List of IpGeoResponse, one per IP in the same order.</returns>
+        /// <returns>
+        /// List of IpGeoResponse, one per IP in the same order. Check each row's Success.
+        /// A failed row has a Message, and its Data holds only the Ip.
+        /// </returns>
         public async Task<List<IpGeoResponse>> BulkAsync(
             List<string> ips,
             CancellationToken cancellationToken = default)
@@ -481,7 +534,7 @@ namespace IPWho
             var bulkParam = string.Join(",", ips);
             var url = BuildUrl($"/bulk/{bulkParam}", null, null);
 
-            using var response = await _httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
+            using var response = await SendAsync(url, cancellationToken).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             var statusCode = (int)response.StatusCode;
 
@@ -502,8 +555,8 @@ namespace IPWho
         private string BuildUrl(string path, string? format, string? fields)
         {
             var uriBuilder = new UriBuilder(_baseUrl + path);
+            // The API key is not a query parameter: SendAsync puts it in a header.
             var queryParts = new List<string>();
-            queryParts.Add($"apiKey={Uri.EscapeDataString(_apiKey)}");
 
             if (!string.IsNullOrEmpty(format) && format != "json")
                 queryParts.Add($"format={Uri.EscapeDataString(format)}");
@@ -515,9 +568,18 @@ namespace IPWho
             return uriBuilder.ToString();
         }
 
+        private async Task<HttpResponseMessage> SendAsync(string url, CancellationToken ct)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            // Set on the request, so an HttpClient you share never gets the key
+            // as a default header.
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+            return await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
+        }
+
         private async Task<IpGeoResponse> ExecuteAsync(string url, CancellationToken ct)
         {
-            using var response = await _httpClient.GetAsync(url, ct).ConfigureAwait(false);
+            using var response = await SendAsync(url, ct).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             var statusCode = (int)response.StatusCode;
 
@@ -565,8 +627,8 @@ namespace IPWho
                 {
                     var err = JsonSerializer.Deserialize<ErrorResponse>(body,
                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                    if (err?.Message != null)
-                        message = err.Message;
+                    if ((err?.Message ?? err?.Error) is { } detail)
+                        message = detail;
                 }
                 catch
                 {

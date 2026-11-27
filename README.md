@@ -19,7 +19,7 @@ Open a free [Lavrox](https://lavrox.com) account to get an API key for [IPWho](h
 dotnet add package IPWho.Sdk
 ```
 
-Targets .NET 8. Namespace: `IPWho`.
+Targets .NET 8. No NuGet dependencies. Namespace: `IPWho`.
 
 ## Quick Start
 
@@ -48,7 +48,9 @@ IpGeoResponse
     └── UserAgent
 ```
 
-`BulkAsync` returns `List<IpGeoResponse>` (not a wrapper).
+`BulkAsync` returns `List<IpGeoResponse>` (not a wrapper), one per address. Check each row's `Success`. A failed row has a `Message`, and its `Data` holds only the `Ip`.
+
+The client sends your API key in the `Authorization` header, so it isn't part of the request URL.
 
 ## Reading the full response (8.8.8.8)
 
@@ -85,8 +87,8 @@ Console.WriteLine(tz.CurrentTime);
 Console.WriteLine(data.Flag!.FlagIcon);    // 🇺🇸
 Console.WriteLine(data.Flag.FlagUnicode);  // U+1F1FA U+1F1F8
 
-Console.WriteLine(data.Currency!.Code);
-Console.WriteLine(data.Currency.NamePlural); // US dollars
+Console.WriteLine(data.Currency?.Code);
+Console.WriteLine(data.Currency?.NamePlural); // US dollars
 
 var conn = data.Connection!;
 Console.WriteLine(conn.AsnNumber);      // 15169
@@ -105,8 +107,8 @@ if (data.UserAgent?.Browser != null)
 
 Console.WriteLine((await client.MeAsync()).Data?.Ip);
 
-foreach (var item in await client.BulkAsync(new List<string> { "8.8.8.8", "1.1.1.1" }))
-    Console.WriteLine(item.Data?.Ip);
+foreach (var row in await client.BulkAsync(new List<string> { "8.8.8.8", "1.1.1.1" }))
+    Console.WriteLine($"{row.Data?.Ip} {(row.Success ? row.Data?.GeoLocation?.Country : row.Message)}");
 ```
 
 Optional `format` / `fields` / `CancellationToken` on `LookupAsync` and `MeAsync`. Dispose `IpWhoClient` when you own the `HttpClient`.
@@ -115,7 +117,7 @@ Optional `format` / `fields` / `CancellationToken` on `LookupAsync` and `MeAsync
 
 ### `new IpWhoClient(string apiKey, string? baseUrl = null, HttpClient? httpClient = null)`
 
-Query `apiKey`. Default host `https://api.ipwho.org`.
+The key is sent as `Authorization: Bearer`. Default host `https://api.ipwho.org`.
 
 ### Errors
 
@@ -153,6 +155,12 @@ JSON names follow the live wire (`postal_Code`, `flag_Icon`, `isVpn`).
 - Use `?.` — city and user-agent are often null on anycast IPs.
 
 ## Testing
+
+```bash
+dotnet test tests/IPWho.Sdk.Tests
+```
+
+These tests need no API key and no network: a stub answers the requests. For a live check, which uses lookups from your quota:
 
 ```bash
 IPWHO_API_KEY=your_key dotnet run --project examples/Smoke
