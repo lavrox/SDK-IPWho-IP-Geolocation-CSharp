@@ -418,6 +418,10 @@ namespace IPWho
 
         [JsonPropertyName("message")]
         public string? Message { get; set; }
+
+        /// <summary>Error code, for example invalid_api_key. Auth errors send this and no message.</summary>
+        [JsonPropertyName("error")]
+        public string? Error { get; set; }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -623,8 +627,8 @@ namespace IPWho
                 {
                     var err = JsonSerializer.Deserialize<ErrorResponse>(body,
                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                    if (err?.Message != null)
-                        message = err.Message;
+                    if ((err?.Message ?? err?.Error) is { } detail)
+                        message = detail;
                 }
                 catch
                 {

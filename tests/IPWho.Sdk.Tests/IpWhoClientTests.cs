@@ -137,6 +137,8 @@ namespace IPWho.Sdk.Tests
             var error = await Assert.ThrowsAsync(expected, () => _client.LookupAsync("8.8.8.8"));
             Assert.Equal(status, ((IpWhoException)error).StatusCode);
             Assert.DoesNotContain(Key, error.Message);
+            if (status == 401)
+                Assert.Equal("invalid_api_key", error.Message);
         }
 
         [Fact]
